@@ -12,6 +12,8 @@
 #pragma comment(lib, "SPIRVd.lib")
 #pragma comment(lib, "SPVRemapperd.lib")
 #pragma comment(lib, "OGLCompilerd.lib")
+#pragma comment(lib, "OSDependentd.lib")
+
 #pragma comment(lib, "vulkan-1.lib")
 
 int main(int argc, char** argv)
