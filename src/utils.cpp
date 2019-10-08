@@ -15,6 +15,7 @@
 
 #include "utils.hpp"
 #include "vulkan/vulkan.hpp"
+#include "Common.h"
 #include <iomanip>
 #include <numeric>
 
@@ -170,7 +171,7 @@ namespace vk
                                                                 &pipelineInputAssemblyStateCreateInfo, nullptr, &pipelineViewportStateCreateInfo, &pipelineRasterizationStateCreateInfo,
                                                                 &pipelineMultisampleStateCreateInfo, &pipelineDepthStencilStateCreateInfo, &pipelineColorBlendStateCreateInfo,
                                                                 &pipelineDynamicStateCreateInfo, pipelineLayout.get(), renderPass.get());
-
+      
       return device->createGraphicsPipelineUnique(pipelineCache.get(), graphicsPipelineCreateInfo);
     }
 
@@ -190,10 +191,18 @@ namespace vk
         enabledLayers.push_back(layer.data());
       }
 #if !defined(NDEBUG)
+      std::vector<vk::LayerProperties> availableLayers = vk::enumerateInstanceLayerProperties();
+      
       // Enable standard validation layer to find as much errors as possible!
-      if (std::find(layers.begin(), layers.end(), "VK_LAYER_KHRONOS_validation") == layers.end())
+      if (!contains(layers, "VK_LAYER_LUNARG_standard_validation") && 
+          contains_if(availableLayers, [](auto e) { return e.layerName == "VK_LAYER_LUNARG_standard_validation"; } ))
       {
-        enabledLayers.push_back("VK_LAYER_KHRONOS_validation");
+          enabledLayers.push_back("VK_LAYER_LUNARG_standard_validation");
+      }
+      else if (!contains(layers, "VK_LAYER_KHRONOS_validation") && 
+               contains_if(availableLayers, [](auto e) { return e.layerName == "VK_LAYER_KHRONOS_validation"; } ))
+      {
+          enabledLayers.push_back("VK_LAYER_KHRONOS_validation");
       }
 #endif
 
