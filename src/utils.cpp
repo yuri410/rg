@@ -82,23 +82,6 @@ namespace vk
       return device->createDescriptorSetLayoutUnique(vk::DescriptorSetLayoutCreateInfo(flags, checked_cast<uint32_t>(bindings.size()), bindings.data()));
     }
 
-    vk::UniqueDevice createDevice(vk::PhysicalDevice physicalDevice, uint32_t queueFamilyIndex, std::vector<std::string> const& extensions, vk::PhysicalDeviceFeatures const* physicalDeviceFeatures,
-                                  void const* pNext)
-    {
-      std::vector<char const*> enabledExtensions;
-      enabledExtensions.reserve(extensions.size());
-      for (auto const& ext : extensions)
-      {
-        enabledExtensions.push_back(ext.data());
-      }
-
-      // create a UniqueDevice
-      float queuePriority = 0.0f;
-      vk::DeviceQueueCreateInfo deviceQueueCreateInfo(vk::DeviceQueueCreateFlags(), queueFamilyIndex, 1, &queuePriority);
-      vk::DeviceCreateInfo deviceCreateInfo(vk::DeviceCreateFlags(), 1, &deviceQueueCreateInfo, 0, nullptr, checked_cast<uint32_t>(enabledExtensions.size()), enabledExtensions.data(), physicalDeviceFeatures);
-      deviceCreateInfo.pNext = pNext;
-      return physicalDevice.createDeviceUnique(deviceCreateInfo);
-    }
 
     std::vector<vk::UniqueFramebuffer> createFramebuffers(vk::UniqueDevice &device, vk::UniqueRenderPass &renderPass, std::vector<vk::UniqueImageView> const& imageViews, vk::UniqueImageView const& depthImageView, vk::Extent2D const& extent)
     {
@@ -303,48 +286,6 @@ namespace vk
       return VK_TRUE;
     }
 
-    uint32_t findGraphicsQueueFamilyIndex(std::vector<vk::QueueFamilyProperties> const& queueFamilyProperties)
-    {
-      // get the first index into queueFamiliyProperties which supports graphics
-      size_t graphicsQueueFamilyIndex = std::distance(queueFamilyProperties.begin(), std::find_if(queueFamilyProperties.begin(), queueFamilyProperties.end(),
-                                                                                                  [](vk::QueueFamilyProperties const& qfp) { return qfp.queueFlags & vk::QueueFlagBits::eGraphics; }));
-      assert(graphicsQueueFamilyIndex < queueFamilyProperties.size());
-
-      return checked_cast<uint32_t>(graphicsQueueFamilyIndex);
-    }
-
-    std::pair<uint32_t, uint32_t> findGraphicsAndPresentQueueFamilyIndex(vk::PhysicalDevice physicalDevice, vk::SurfaceKHR const& surface)
-    {
-      std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
-      assert(queueFamilyProperties.size() < std::numeric_limits<uint32_t>::max());
-
-      uint32_t graphicsQueueFamilyIndex = findGraphicsQueueFamilyIndex(queueFamilyProperties);
-      if (physicalDevice.getSurfaceSupportKHR(graphicsQueueFamilyIndex, surface))
-      {
-        return std::make_pair(graphicsQueueFamilyIndex, graphicsQueueFamilyIndex);    // the first graphicsQueueFamilyIndex does also support presents
-      }
-
-      // the graphicsQueueFamilyIndex doesn't support present -> look for an other family index that supports both graphics and present
-      for (size_t i = 0; i < queueFamilyProperties.size(); i++)
-      {
-        if ((queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eGraphics) && physicalDevice.getSurfaceSupportKHR(static_cast<uint32_t>(i), surface))
-        {
-          return std::make_pair(static_cast<uint32_t>(i), static_cast<uint32_t>(i));
-        }
-      }
-
-      // there's nothing like a single family index that supports both graphics and present -> look for an other family index that supports present
-      for (size_t i = 0; i < queueFamilyProperties.size(); i++)
-      {
-        if (physicalDevice.getSurfaceSupportKHR(static_cast<uint32_t>(i), surface))
-        {
-          return std::make_pair(graphicsQueueFamilyIndex, static_cast<uint32_t>(i));
-        }
-      }
-
-      throw std::runtime_error("Could not find queues for both graphics or present -> terminating");
-    }
-
     uint32_t findMemoryType(vk::PhysicalDeviceMemoryProperties const& memoryProperties, uint32_t typeBits, vk::MemoryPropertyFlags requirementsMask)
     {
       uint32_t typeIndex = uint32_t(~0);
@@ -359,11 +300,6 @@ namespace vk
       }
       assert(typeIndex != ~0);
       return typeIndex;
-    }
-
-    std::vector<std::string> getDeviceExtensions()
-    {
-      return{ VK_KHR_SWAPCHAIN_EXTENSION_NAME };
     }
 
     std::vector<std::string> getInstanceExtensions()
@@ -662,67 +598,6 @@ namespace vk
       imageView = device->createImageViewUnique(imageViewCreateInfo);
     }
 
-    SurfaceData::SurfaceData(vk::UniqueInstance &instance, std::string const& className, std::string const& windowName, vk::Extent2D const& extent_)
-      : extent(extent_)
-    {
-#if defined(VK_USE_PLATFORM_WIN32_KHR)
-      window = vk::su::initializeWindow(className.c_str(), windowName.c_str(), extent.width, extent.height);
-      surface = instance->createWin32SurfaceKHRUnique(vk::Win32SurfaceCreateInfoKHR(vk::Win32SurfaceCreateFlagsKHR(), GetModuleHandle(nullptr), window));
-#else
-#pragma error "unhandled platform"
-#endif
-    }
-
-    SwapChainData::SwapChainData(vk::PhysicalDevice const& physicalDevice, vk::UniqueDevice const& device, vk::SurfaceKHR const& surface, vk::Extent2D const& extent, vk::ImageUsageFlags usage,
-                                 vk::UniqueSwapchainKHR const& oldSwapChain, uint32_t graphicsQueueFamilyIndex, uint32_t presentQueueFamilyIndex)
-    {
-      vk::SurfaceFormatKHR surfaceFormat = vk::su::pickSurfaceFormat(physicalDevice.getSurfaceFormatsKHR(surface));
-      colorFormat = surfaceFormat.format;
-
-      vk::SurfaceCapabilitiesKHR surfaceCapabilities = physicalDevice.getSurfaceCapabilitiesKHR(surface);
-      VkExtent2D swapchainExtent;
-      if (surfaceCapabilities.currentExtent.width == std::numeric_limits<uint32_t>::max())
-      {
-        // If the surface size is undefined, the size is set to the size of the images requested.
-        swapchainExtent.width = clamp(extent.width, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width);
-        swapchainExtent.height = clamp(extent.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
-      }
-      else
-      {
-        // If the surface size is defined, the swap chain size must match
-        swapchainExtent = surfaceCapabilities.currentExtent;
-      }
-      vk::SurfaceTransformFlagBitsKHR preTransform = (surfaceCapabilities.supportedTransforms & vk::SurfaceTransformFlagBitsKHR::eIdentity) ? vk::SurfaceTransformFlagBitsKHR::eIdentity : surfaceCapabilities.currentTransform;
-      vk::CompositeAlphaFlagBitsKHR compositeAlpha =
-        (surfaceCapabilities.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::ePreMultiplied) ? vk::CompositeAlphaFlagBitsKHR::ePreMultiplied :
-        (surfaceCapabilities.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::ePostMultiplied) ? vk::CompositeAlphaFlagBitsKHR::ePostMultiplied :
-        (surfaceCapabilities.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::eInherit) ? vk::CompositeAlphaFlagBitsKHR::eInherit : vk::CompositeAlphaFlagBitsKHR::eOpaque;
-      vk::PresentModeKHR presentMode = vk::su::pickPresentMode(physicalDevice.getSurfacePresentModesKHR(surface));
-      vk::SwapchainCreateInfoKHR swapChainCreateInfo({}, surface, surfaceCapabilities.minImageCount, colorFormat, surfaceFormat.colorSpace, swapchainExtent, 1, usage, vk::SharingMode::eExclusive,
-                                                     0, nullptr, preTransform, compositeAlpha, presentMode, true, *oldSwapChain);
-      if (graphicsQueueFamilyIndex != presentQueueFamilyIndex)
-      {
-        uint32_t queueFamilyIndices[2] = { graphicsQueueFamilyIndex, presentQueueFamilyIndex };
-        // If the graphics and present queues are from different queue families, we either have to explicitly transfer ownership of images between
-        // the queues, or we have to create the swapchain with imageSharingMode as vk::SharingMode::eConcurrent
-        swapChainCreateInfo.imageSharingMode = vk::SharingMode::eConcurrent;
-        swapChainCreateInfo.queueFamilyIndexCount = 2;
-        swapChainCreateInfo.pQueueFamilyIndices = queueFamilyIndices;
-      }
-      swapChain = device->createSwapchainKHRUnique(swapChainCreateInfo);
-
-      images = device->getSwapchainImagesKHR(swapChain.get());
-
-      imageViews.reserve(images.size());
-      vk::ComponentMapping componentMapping(vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG, vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA);
-      vk::ImageSubresourceRange subResourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1);
-      for (auto image : images)
-      {
-        vk::ImageViewCreateInfo imageViewCreateInfo(vk::ImageViewCreateFlags(), image, vk::ImageViewType::e2D, colorFormat, componentMapping, subResourceRange);
-        imageViews.push_back(device->createImageViewUnique(imageViewCreateInfo));
-      }
-    }
-
     CheckerboardImageGenerator::CheckerboardImageGenerator(std::array<uint8_t, 3> const& rgb0, std::array<uint8_t, 3> const& rgb1)
       : m_rgb0(rgb0)
       , m_rgb1(rgb1)
@@ -820,57 +695,6 @@ namespace vk
     {
       memcpy(m_data, data, VK_UUID_SIZE * sizeof(uint8_t));
     }
-
-#if defined(VK_USE_PLATFORM_WIN32_KHR)
-    LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-    {
-      switch (uMsg)
-      {
-        case WM_CLOSE:
-          PostQuitMessage(0);
-          break;
-        default:
-          break;
-      }
-      return (DefWindowProc(hWnd, uMsg, wParam, lParam));
-    }
-
-    HWND initializeWindow(std::string const& className, std::string const& windowName, LONG width, LONG height)
-    {
-      WNDCLASSEX windowClass;
-      memset(&windowClass, 0, sizeof(WNDCLASSEX));
-
-      HINSTANCE instance = GetModuleHandle(nullptr);
-      windowClass.cbSize = sizeof(WNDCLASSEX);
-      windowClass.style = CS_HREDRAW | CS_VREDRAW;
-      windowClass.lpfnWndProc = WindowProc;
-      windowClass.hInstance = instance;
-      windowClass.hIcon = LoadIcon(NULL, IDI_APPLICATION);
-      windowClass.hCursor = LoadCursor(NULL, IDC_ARROW);
-      windowClass.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
-      windowClass.lpszClassName = className.c_str();
-      windowClass.hIconSm = LoadIcon(NULL, IDI_WINLOGO);
-
-      if (!RegisterClassEx(&windowClass))
-      {
-        throw std::runtime_error("Failed to register WNDCLASSEX -> terminating");
-      }
-
-      RECT windowRect = { 0, 0, width, height };
-      AdjustWindowRect(&windowRect, WS_OVERLAPPEDWINDOW, FALSE);
-
-      HWND window = CreateWindowEx(0, className.c_str(), windowName.c_str(), WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_SYSMENU, 100, 100, windowRect.right - windowRect.left,
-                                   windowRect.bottom - windowRect.top, nullptr, nullptr, instance, nullptr);
-      if (!window)
-      {
-        throw std::runtime_error("Failed to create window -> terminating");
-      }
-
-      return window;
-    }
-#else
-#pragma error "unhandled platform"
-#endif
   }
 }
 

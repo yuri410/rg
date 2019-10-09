@@ -98,25 +98,6 @@ namespace vk
       DepthBufferData(vk::PhysicalDevice &physicalDevice, vk::UniqueDevice & device, vk::Format format, vk::Extent2D const& extent);
     };
 
-    struct SurfaceData
-    {
-      SurfaceData(vk::UniqueInstance &instance, std::string const& className, std::string const& windowName, vk::Extent2D const& extent);
-
-      vk::Extent2D          extent;
-      HWND                  window;
-      vk::UniqueSurfaceKHR  surface;
-    };
-
-    struct SwapChainData
-    {
-      SwapChainData(vk::PhysicalDevice const& physicalDevice, vk::UniqueDevice const& device, vk::SurfaceKHR const& surface, vk::Extent2D const& extent, vk::ImageUsageFlags usage,
-                    vk::UniqueSwapchainKHR const& oldSwapChain, uint32_t graphicsFamilyIndex, uint32_t presentFamilyIndex);
-
-      vk::Format                        colorFormat;
-      vk::UniqueSwapchainKHR            swapChain;
-      std::vector<vk::Image>            images;
-      std::vector<vk::UniqueImageView>  imageViews;
-    };
 
     class CheckerboardImageGenerator
     {
@@ -268,21 +249,16 @@ namespace vk
     vk::UniqueDescriptorPool createDescriptorPool(vk::UniqueDevice &device, std::vector<vk::DescriptorPoolSize> const& poolSizes);
     vk::UniqueDescriptorSetLayout createDescriptorSetLayout(vk::UniqueDevice const& device, std::vector<std::tuple<vk::DescriptorType, uint32_t, vk::ShaderStageFlags>> const& bindingData,
                                                             vk::DescriptorSetLayoutCreateFlags flags = {});
-    vk::UniqueDevice createDevice(vk::PhysicalDevice physicalDevice, uint32_t queueFamilyIndex, std::vector<std::string> const& extensions = {}, vk::PhysicalDeviceFeatures const* physicalDeviceFeatures = nullptr, void const* pNext = nullptr);
     std::vector<vk::UniqueFramebuffer> createFramebuffers(vk::UniqueDevice &device, vk::UniqueRenderPass &renderPass, std::vector<vk::UniqueImageView> const& imageViews, vk::UniqueImageView const& depthImageView, vk::Extent2D const& extent);
     vk::UniquePipeline createGraphicsPipeline(vk::UniqueDevice const& device, vk::UniquePipelineCache const& pipelineCache,
                                               std::pair<vk::ShaderModule, vk::SpecializationInfo const*> const& vertexShaderData,
                                               std::pair<vk::ShaderModule, vk::SpecializationInfo const*> const& fragmentShaderData, uint32_t vertexStride,
                                               std::vector<std::pair<vk::Format, uint32_t>> const& vertexInputAttributeFormatOffset, vk::FrontFace frontFace, bool depthBuffered,
                                               vk::UniquePipelineLayout const& pipelineLayout, vk::UniqueRenderPass const& renderPass);
-    vk::UniqueInstance createInstance(std::string const& appName, std::string const& engineName, std::vector<std::string> const& layers = {}, std::vector<std::string> const& extensions = {},
-                                      uint32_t apiVersion = VK_API_VERSION_1_0);
+    
     vk::UniqueRenderPass createRenderPass(vk::UniqueDevice &device, vk::Format colorFormat, vk::Format depthFormat, vk::AttachmentLoadOp loadOp = vk::AttachmentLoadOp::eClear, vk::ImageLayout colorFinalLayout = vk::ImageLayout::ePresentSrcKHR);
     VkBool32 debugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageTypes, VkDebugUtilsMessengerCallbackDataEXT const * pCallbackData, void * /*pUserData*/);
-    uint32_t findGraphicsQueueFamilyIndex(std::vector<vk::QueueFamilyProperties> const& queueFamilyProperties);
-    std::pair<uint32_t, uint32_t> findGraphicsAndPresentQueueFamilyIndex(vk::PhysicalDevice physicalDevice, vk::SurfaceKHR const& surface);
     uint32_t findMemoryType(vk::PhysicalDeviceMemoryProperties const& memoryProperties, uint32_t typeBits, vk::MemoryPropertyFlags requirementsMask);
-    std::vector<std::string> getDeviceExtensions();
     std::vector<std::string> getInstanceExtensions();
     vk::Format pickDepthFormat(vk::PhysicalDevice const& physicalDevice);
     vk::PresentModeKHR pickPresentMode(std::vector<vk::PresentModeKHR> const& presentModes);
@@ -296,11 +272,6 @@ namespace vk
                               std::vector<std::tuple<vk::DescriptorType, vk::UniqueBuffer const&, vk::UniqueBufferView const&>> const& bufferData,
                               std::vector<vk::su::TextureData> const& textureData, uint32_t bindingOffset = 0);
 
-#if defined(VK_USE_PLATFORM_WIN32_KHR)
-    HWND initializeWindow(std::string const& className, std::string const& windowName, LONG width, LONG height);
-#else
-#pragma error "unhandled platform"
-#endif
   }
 }
 

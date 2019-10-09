@@ -43,6 +43,8 @@ glm::mat4x4 createModelViewProjectionClipMatrix(float rot, vk::Extent2D const& e
 
 int main(int argc, char** argv)
 {
+    glslang::InitializeProcess();
+
     const char* appName = "Ray GPU";
 
     vk::UniqueInstance instance = vk::su::createInstance(appName, appName, {}, vk::su::getInstanceExtensions(), VK_API_VERSION_1_0);
@@ -74,10 +76,8 @@ int main(int argc, char** argv)
 
     vk::UniqueRenderPass renderPass = vk::su::createRenderPass(device, vk::su::pickSurfaceFormat(physicalDevice.getSurfaceFormatsKHR(surfaceData.surface.get())).format, depthBufferData.format);
 
-    glslang::InitializeProcess();
     vk::UniqueShaderModule vertexShaderModule = vk::su::createShaderModule(device, vk::ShaderStageFlagBits::eVertex, vertexShaderText_PC_C);
     vk::UniqueShaderModule fragmentShaderModule = vk::su::createShaderModule(device, vk::ShaderStageFlagBits::eFragment, fragmentShaderText_C_C);
-    glslang::FinalizeProcess();
 
     std::vector<vk::UniqueFramebuffer> framebuffers = vk::su::createFramebuffers(device, renderPass, swapChainData.imageViews, depthBufferData.imageView, surfaceData.extent);
 
@@ -148,7 +148,7 @@ int main(int argc, char** argv)
         vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
         vk::SubmitInfo submitInfo(1, &imageAcquiredSemaphore.get(), &waitDestinationStageMask, 1, &commandBuffer.get());
         graphicsQueue.submit(submitInfo, drawFence.get());
-
+        
         while (vk::Result::eTimeout == device->waitForFences(drawFence.get(), VK_TRUE, vk::su::FenceTimeout))
             ;
 
@@ -161,6 +161,7 @@ int main(int argc, char** argv)
     device->waitIdle();
 
     DestroyWindow(surfaceData.window);
+    glslang::FinalizeProcess();
 
     return 0;
 }

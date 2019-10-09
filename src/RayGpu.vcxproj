@@ -86,6 +86,7 @@
   <ItemGroup>
     <ClCompile Include="main.cpp" />
     <ClCompile Include="math.cpp" />
+    <ClCompile Include="GraphicsObjects.cpp" />
     <ClCompile Include="shaders.cpp" />
     <ClCompile Include="utils.cpp" />
   </ItemGroup>
@@ -93,6 +94,7 @@
     <ClInclude Include="Common.h" />
     <ClInclude Include="geometries.hpp" />
     <ClInclude Include="math.hpp" />
+    <ClInclude Include="GraphicsObjects.h" />
     <ClInclude Include="shaders.hpp" />
     <ClInclude Include="utils.hpp" />
   </ItemGroup>
