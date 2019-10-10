@@ -33,6 +33,8 @@ public:
     const vk::PhysicalDevice& getPhysicalDevice() const { return m_physicalDevice; }
     const vk::UniqueDevice& getVKDevice() const { return m_device; }
 
+    const vk::Queue& getPresentQueue() const { return m_presentQueue; }
+
     uint32 getGraphicsQueueFamilyIndex() const { return m_graphicsQueueFamilyIndex; }
     uint32 getPresentQueueFamilyIndex() const { return m_presentQueueFamilyIndex; }
 
@@ -55,10 +57,10 @@ public:
     void Acquire();
     void Present();
 
-    uint32 getCurrentImageIndex() const { return m_currentBufferIndex.value; } 
+    uint32 getCurrentImageIndex() const { return m_currentBufferIndex.value(); } 
 
 private:
-
+    const Device&                     m_device;
     vk::Format                        m_colorFormat;
     vk::UniqueSwapchainKHR            m_swapChain;
     std::vector<vk::Image>            m_images;
@@ -66,5 +68,5 @@ private:
 
     vk::UniqueSemaphore               m_imageAcquiredSemaphore;
 
-    vk::ResultValue<uint32_t>         m_currentBufferIndex;
+    std::optional<uint32>             m_currentBufferIndex;
 };

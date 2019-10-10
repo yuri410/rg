@@ -134,7 +134,59 @@ Device::~Device()
 
 /////////////////////////////////////////////////////////////////////////
 
+vk::PresentModeKHR pickPresentMode(std::vector<vk::PresentModeKHR> const& presentModes)
+{
+    vk::PresentModeKHR pickedMode = vk::PresentModeKHR::eFifo;
+    for (const auto& presentMode : presentModes)
+    {
+        if (presentMode == vk::PresentModeKHR::eMailbox)
+        {
+            pickedMode = presentMode;
+            break;
+        }
+
+        if (presentMode == vk::PresentModeKHR::eImmediate)
+        {
+            pickedMode = presentMode;
+        }
+    }
+    return pickedMode;
+}
+
+vk::SurfaceFormatKHR pickSurfaceFormat(std::vector<vk::SurfaceFormatKHR> const& formats)
+{
+    assert(!formats.empty());
+    vk::SurfaceFormatKHR pickedFormat = formats[0];
+    if (formats.size() == 1)
+    {
+        if (formats[0].format == vk::Format::eUndefined)
+        {
+            pickedFormat.format = vk::Format::eB8G8R8A8Unorm;
+            pickedFormat.colorSpace = vk::ColorSpaceKHR::eSrgbNonlinear;
+        }
+    }
+    else
+    {
+        // request several formats, the first found will be used
+        vk::Format        requestedFormats[] = { vk::Format::eB8G8R8A8Unorm, vk::Format::eR8G8B8A8Unorm, vk::Format::eB8G8R8Unorm, vk::Format::eR8G8B8Unorm };
+        vk::ColorSpaceKHR requestedColorSpace = vk::ColorSpaceKHR::eSrgbNonlinear;
+        for (size_t i = 0; i < sizeof(requestedFormats) / sizeof(requestedFormats[0]); i++)
+        {
+            vk::Format requestedFormat = requestedFormats[i];
+            auto it = std::find_if(formats.begin(), formats.end(), [requestedFormat, requestedColorSpace](auto const& f) { return (f.format == requestedFormat) && (f.colorSpace == requestedColorSpace); });
+            if (it != formats.end())
+            {
+                pickedFormat = *it;
+                break;
+            }
+        }
+    }
+    assert(pickedFormat.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear);
+    return pickedFormat;
+}
+
 SwapChain::SwapChain(const Device& device, const RenderWindow& window, vk::ImageUsageFlags usage, const vk::UniqueSwapchainKHR& oldSwapChain)
+    : m_device(device)
 {
     const vk::PhysicalDevice& physicalDevice = device.getPhysicalDevice();
     const vk::UniqueDevice& vkdevice = device.getVKDevice();
@@ -145,7 +197,7 @@ SwapChain::SwapChain(const Device& device, const RenderWindow& window, vk::Image
     const uint32 surfaceWidth = window.getWidth();
     const uint32 surfaceHeight = window.getHeight();
 
-    vk::SurfaceFormatKHR surfaceFormat = vk::su::pickSurfaceFormat(physicalDevice.getSurfaceFormatsKHR(surface));
+    vk::SurfaceFormatKHR surfaceFormat = pickSurfaceFormat(physicalDevice.getSurfaceFormatsKHR(surface));
     m_colorFormat = surfaceFormat.format;
 
     vk::SurfaceCapabilitiesKHR surfaceCapabilities = physicalDevice.getSurfaceCapabilitiesKHR(surface);
@@ -166,7 +218,7 @@ SwapChain::SwapChain(const Device& device, const RenderWindow& window, vk::Image
         (surfaceCapabilities.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::ePreMultiplied) ? vk::CompositeAlphaFlagBitsKHR::ePreMultiplied :
         (surfaceCapabilities.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::ePostMultiplied) ? vk::CompositeAlphaFlagBitsKHR::ePostMultiplied :
         (surfaceCapabilities.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::eInherit) ? vk::CompositeAlphaFlagBitsKHR::eInherit : vk::CompositeAlphaFlagBitsKHR::eOpaque;
-    vk::PresentModeKHR presentMode = vk::su::pickPresentMode(physicalDevice.getSurfacePresentModesKHR(surface));
+    vk::PresentModeKHR presentMode = pickPresentMode(physicalDevice.getSurfacePresentModesKHR(surface));
     vk::SwapchainCreateInfoKHR swapChainCreateInfo({}, surface, surfaceCapabilities.minImageCount, m_colorFormat, surfaceFormat.colorSpace, swapchainExtent, 1, usage, vk::SharingMode::eExclusive,
                                                    0, nullptr, preTransform, compositeAlpha, presentMode, true, *oldSwapChain);
     if (graphicsQueueFamilyIndex != presentQueueFamilyIndex)
@@ -200,12 +252,17 @@ SwapChain::~SwapChain()
 
 void SwapChain::Acquire()
 {
-    m_currentBufferIndex = device->acquireNextImageKHR(swapChainData.swapChain.get(), vk::su::FenceTimeout, m_imageAcquiredSemaphore.get(), nullptr);
-    assert(m_currentBufferIndex.result == vk::Result::eSuccess);
-    assert(m_currentBufferIndex.value < m_imageViews.size());
+    vk::ResultValue<uint32_t> currentBufferIndex = m_device.getVKDevice()->acquireNextImageKHR(m_swapChain.get(), vk::su::FenceTimeout, m_imageAcquiredSemaphore.get(), nullptr);
+
+    //m_currentBufferIndex = m_device.getVKDevice()->acquireNextImageKHR(m_swapChain.get(), vk::su::FenceTimeout, m_imageAcquiredSemaphore.get(), nullptr);
+    assert(currentBufferIndex.result == vk::Result::eSuccess);
+    assert(currentBufferIndex.value < m_imageViews.size());
+
+    m_currentBufferIndex = currentBufferIndex.value;
 }
 
 void SwapChain::Present()
 {
-    presentQueue.presentKHR(vk::PresentInfoKHR(0, nullptr, 1, &swapChainData.swapChain.get(), &m_currentBufferIndex.value));
+    const vk::Queue& presentQueue = m_device.getPresentQueue();
+    presentQueue.presentKHR(vk::PresentInfoKHR(0, nullptr, 1, &m_swapChain.get(), &m_currentBufferIndex.value));
 }

@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <string>
+#include <optional>
 #include <glm/glm.hpp>
 #include <cstdint>
 

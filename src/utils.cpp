@@ -345,57 +345,6 @@ namespace vk
       throw std::runtime_error("failed to find supported format!");
     }
 
-    vk::PresentModeKHR pickPresentMode(std::vector<vk::PresentModeKHR> const& presentModes)
-    {
-      vk::PresentModeKHR pickedMode = vk::PresentModeKHR::eFifo;
-      for(const auto& presentMode : presentModes)
-      {
-        if(presentMode == vk::PresentModeKHR::eMailbox)
-        {
-          pickedMode = presentMode;
-          break;
-        }
-
-        if(presentMode == vk::PresentModeKHR::eImmediate)
-        {
-          pickedMode = presentMode;
-        }
-      }
-      return pickedMode;
-    }
-
-    vk::SurfaceFormatKHR pickSurfaceFormat(std::vector<vk::SurfaceFormatKHR> const& formats)
-    {
-      assert(!formats.empty());
-      vk::SurfaceFormatKHR pickedFormat = formats[0];
-      if (formats.size() == 1)
-      {
-        if (formats[0].format == vk::Format::eUndefined)
-        {
-          pickedFormat.format     = vk::Format::eB8G8R8A8Unorm;
-          pickedFormat.colorSpace = vk::ColorSpaceKHR::eSrgbNonlinear;
-        }
-      }
-      else
-      {
-        // request several formats, the first found will be used
-        vk::Format        requestedFormats[]  = { vk::Format::eB8G8R8A8Unorm, vk::Format::eR8G8B8A8Unorm, vk::Format::eB8G8R8Unorm, vk::Format::eR8G8B8Unorm };
-        vk::ColorSpaceKHR requestedColorSpace = vk::ColorSpaceKHR::eSrgbNonlinear;
-        for (size_t i = 0; i < sizeof(requestedFormats) / sizeof(requestedFormats[0]); i++)
-        {
-          vk::Format requestedFormat = requestedFormats[i];
-          auto it = std::find_if(formats.begin(), formats.end(), [requestedFormat, requestedColorSpace](auto const& f) { return (f.format == requestedFormat) && (f.colorSpace == requestedColorSpace); });
-          if (it != formats.end())
-          {
-            pickedFormat = *it;
-            break;
-          }
-        }
-      }
-      assert(pickedFormat.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear);
-      return pickedFormat;
-    }
-
     void setImageLayout(vk::UniqueCommandBuffer const& commandBuffer, vk::Image image, vk::Format format, vk::ImageLayout oldImageLayout, vk::ImageLayout newImageLayout)
     {
       vk::AccessFlags sourceAccessMask;
