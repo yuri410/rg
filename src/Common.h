@@ -30,3 +30,11 @@ bool contains_if(const C& c, F matcher)
 {
     return std::find_if(c.begin(), c.end(), matcher) != c.end();
 }
+
+
+template <typename T>
+T clamp(const T& x, const T& min, const T& max)
+{
+    if (x < min)return min;
+    return x > max ? max : x
+}

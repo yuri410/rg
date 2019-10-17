@@ -459,93 +459,6 @@ namespace vk
         ;
     }
 
-    void updateDescriptorSets(vk::UniqueDevice const& device, vk::UniqueDescriptorSet const& descriptorSet,
-                              std::vector<std::tuple<vk::DescriptorType, vk::UniqueBuffer const&, vk::UniqueBufferView const&>> const& bufferData, vk::su::TextureData const& textureData,
-                              uint32_t bindingOffset)
-    {
-      std::vector<vk::DescriptorBufferInfo> bufferInfos;
-      bufferInfos.reserve(bufferData.size());
-
-      std::vector<vk::WriteDescriptorSet> writeDescriptorSets;
-      writeDescriptorSets.reserve(bufferData.size() + 1);
-      uint32_t dstBinding = bindingOffset;
-      for (auto const& bd : bufferData)
-      {
-        bufferInfos.push_back(vk::DescriptorBufferInfo(*std::get<1>(bd), 0, VK_WHOLE_SIZE));
-        writeDescriptorSets.push_back(vk::WriteDescriptorSet(*descriptorSet, dstBinding++, 0, 1, std::get<0>(bd), nullptr, &bufferInfos.back(), std::get<2>(bd) ? &*std::get<2>(bd) : nullptr));
-      }
-
-      vk::DescriptorImageInfo imageInfo(*textureData.textureSampler, *textureData.imageData->imageView, vk::ImageLayout::eShaderReadOnlyOptimal);
-      writeDescriptorSets.push_back(vk::WriteDescriptorSet(*descriptorSet, dstBinding, 0, 1, vk::DescriptorType::eCombinedImageSampler, &imageInfo, nullptr, nullptr));
-
-      device->updateDescriptorSets(writeDescriptorSets, nullptr);
-    }
-
-    void updateDescriptorSets(vk::UniqueDevice const& device, vk::UniqueDescriptorSet const& descriptorSet,
-                              std::vector<std::tuple<vk::DescriptorType, vk::UniqueBuffer const&, vk::UniqueBufferView const&>> const& bufferData,
-                              std::vector<vk::su::TextureData> const& textureData, uint32_t bindingOffset)
-    {
-      std::vector<vk::DescriptorBufferInfo> bufferInfos;
-      bufferInfos.reserve(bufferData.size());
-
-      std::vector<vk::WriteDescriptorSet> writeDescriptorSets;
-      writeDescriptorSets.reserve(bufferData.size() + textureData.empty() ? 0 : 1);
-      uint32_t dstBinding = bindingOffset;
-      for (auto const& bd : bufferData)
-      {
-        bufferInfos.push_back(vk::DescriptorBufferInfo(*std::get<1>(bd), 0, VK_WHOLE_SIZE));
-        writeDescriptorSets.push_back(vk::WriteDescriptorSet(*descriptorSet, dstBinding++, 0, 1, std::get<0>(bd), nullptr, &bufferInfos.back(), std::get<2>(bd) ? &*std::get<2>(bd) : nullptr));
-      }
-
-      std::vector<vk::DescriptorImageInfo> imageInfos;
-      if (!textureData.empty())
-      {
-        imageInfos.reserve(textureData.size());
-        for (auto const& td : textureData)
-        {
-          imageInfos.push_back(vk::DescriptorImageInfo(*td.textureSampler, *td.imageData->imageView, vk::ImageLayout::eShaderReadOnlyOptimal));
-        }
-        writeDescriptorSets.push_back(vk::WriteDescriptorSet(*descriptorSet, dstBinding, 0, checked_cast<uint32_t>(imageInfos.size()), vk::DescriptorType::eCombinedImageSampler, imageInfos.data(),
-                                                             nullptr, nullptr));
-      }
-
-      device->updateDescriptorSets(writeDescriptorSets, nullptr);
-    }
-
-    BufferData::BufferData(vk::PhysicalDevice const& physicalDevice, vk::UniqueDevice const& device, vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags propertyFlags)
-#if !defined(NDEBUG)
-      : m_size(size)
-      , m_usage(usage)
-      , m_propertyFlags(propertyFlags)
-#endif
-    {
-      buffer = device->createBufferUnique(vk::BufferCreateInfo(vk::BufferCreateFlags(), size, usage));
-      deviceMemory = vk::su::allocateMemory(device, physicalDevice.getMemoryProperties(), device->getBufferMemoryRequirements(buffer.get()), propertyFlags);
-      device->bindBufferMemory(buffer.get(), deviceMemory.get(), 0);
-    }
-
-    DepthBufferData::DepthBufferData(vk::PhysicalDevice &physicalDevice, vk::UniqueDevice & device, vk::Format format, vk::Extent2D const& extent)
-      : ImageData(physicalDevice, device, format, extent, vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::ImageLayout::eUndefined,
-                  vk::MemoryPropertyFlagBits::eDeviceLocal, vk::ImageAspectFlagBits::eDepth)
-    {
-    }
-
-    ImageData::ImageData(vk::PhysicalDevice const& physicalDevice, vk::UniqueDevice const& device, vk::Format format_, vk::Extent2D const& extent, vk::ImageTiling tiling,
-                         vk::ImageUsageFlags usage, vk::ImageLayout initialLayout, vk::MemoryPropertyFlags memoryProperties, vk::ImageAspectFlags aspectMask)
-      : format(format_)
-    {
-      vk::ImageCreateInfo imageCreateInfo(vk::ImageCreateFlags(), vk::ImageType::e2D, format, vk::Extent3D(extent, 1), 1, 1,
-                                          vk::SampleCountFlagBits::e1, tiling, usage | vk::ImageUsageFlagBits::eSampled, vk::SharingMode::eExclusive, 0, nullptr, initialLayout);
-      image = device->createImageUnique(imageCreateInfo);
-
-      deviceMemory = vk::su::allocateMemory(device, physicalDevice.getMemoryProperties(), device->getImageMemoryRequirements(image.get()), memoryProperties);
-
-      device->bindImageMemory(image.get(), deviceMemory.get(), 0);
-
-      vk::ComponentMapping componentMapping(ComponentSwizzle::eR, ComponentSwizzle::eG, ComponentSwizzle::eB, ComponentSwizzle::eA);
-      vk::ImageViewCreateInfo imageViewCreateInfo(vk::ImageViewCreateFlags(), image.get(), vk::ImageViewType::e2D, format, componentMapping, vk::ImageSubresourceRange(aspectMask, 0, 1, 0, 1));
-      imageView = device->createImageViewUnique(imageViewCreateInfo);
-    }
 
     CheckerboardImageGenerator::CheckerboardImageGenerator(std::array<uint8_t, 3> const& rgb0, std::array<uint8_t, 3> const& rgb1)
       : m_rgb0(rgb0)
@@ -605,40 +518,6 @@ namespace vk
       memcpy(data, m_pixels, m_extent.width * m_extent.height * m_channels);
     }
 
-    TextureData::TextureData(vk::PhysicalDevice const& physicalDevice, vk::UniqueDevice const& device, vk::Extent2D const& extent_, vk::ImageUsageFlags usageFlags,
-                             vk::FormatFeatureFlags formatFeatureFlags, bool anisotropyEnable, bool forceStaging)
-      : format(vk::Format::eR8G8B8A8Unorm)
-      , extent(extent_)
-    {
-      vk::PhysicalDeviceMemoryProperties memoryProperties = physicalDevice.getMemoryProperties();
-      vk::FormatProperties formatProperties = physicalDevice.getFormatProperties(format);
-
-      formatFeatureFlags |= vk::FormatFeatureFlagBits::eSampledImage;
-      needsStaging = forceStaging || ((formatProperties.linearTilingFeatures & formatFeatureFlags) != formatFeatureFlags);
-      vk::ImageTiling imageTiling;
-      vk::ImageLayout initialLayout;
-      vk::MemoryPropertyFlags requirements;
-      if (needsStaging)
-      {
-        assert((formatProperties.optimalTilingFeatures & formatFeatureFlags) == formatFeatureFlags);
-        stagingBufferData = std::make_unique<BufferData>(physicalDevice, device, extent.width * extent.height * 4, vk::BufferUsageFlagBits::eTransferSrc);
-        imageTiling = vk::ImageTiling::eOptimal;
-        usageFlags |= vk::ImageUsageFlagBits::eTransferDst;
-        initialLayout = vk::ImageLayout::eUndefined;
-      }
-      else
-      {
-        imageTiling = vk::ImageTiling::eLinear;
-        initialLayout = vk::ImageLayout::ePreinitialized;
-        requirements = vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible;
-      }
-      imageData = std::make_unique<ImageData>(physicalDevice, device, format, extent, imageTiling, usageFlags | vk::ImageUsageFlagBits::eSampled, initialLayout, requirements,
-                                              vk::ImageAspectFlagBits::eColor);
-
-      textureSampler = device->createSamplerUnique(vk::SamplerCreateInfo(vk::SamplerCreateFlags(), vk::Filter::eLinear, vk::Filter::eLinear, vk::SamplerMipmapMode::eLinear,
-                                                                         vk::SamplerAddressMode::eRepeat, vk::SamplerAddressMode::eRepeat, vk::SamplerAddressMode::eRepeat, 0.0f, anisotropyEnable,
-                                                                         16.0f, false, vk::CompareOp::eNever, 0.0f, 0.0f, vk::BorderColor::eFloatOpaqueBlack));
-    }
 
     UUID::UUID(uint8_t data[VK_UUID_SIZE])
     {

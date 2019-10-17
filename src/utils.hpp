@@ -25,80 +25,6 @@ namespace vk
   {
     const uint64_t FenceTimeout = 100000000;
 
-    struct BufferData
-    {
-      BufferData(vk::PhysicalDevice const& physicalDevice, vk::UniqueDevice const& device, vk::DeviceSize size, vk::BufferUsageFlags usage,
-                 vk::MemoryPropertyFlags propertyFlags = vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
-
-      template <typename DataType>
-      void upload(vk::UniqueDevice const& device, DataType const& data) const
-      {
-        assert((m_propertyFlags & vk::MemoryPropertyFlagBits::eHostCoherent) && (m_propertyFlags & vk::MemoryPropertyFlagBits::eHostVisible));
-        assert(sizeof(DataType) <= m_size);
-
-        void* dataPtr = device->mapMemory(*this->deviceMemory, 0, sizeof(DataType));
-        memcpy(dataPtr, &data, sizeof(DataType));
-        device->unmapMemory(*this->deviceMemory);
-      }
-
-      template <typename DataType>
-      void upload(vk::UniqueDevice const& device, std::vector<DataType> const& data, size_t stride = 0) const
-      {
-        assert(m_propertyFlags & vk::MemoryPropertyFlagBits::eHostVisible);
-
-        size_t elementSize = stride ? stride : sizeof(DataType);
-        assert(sizeof(DataType) <= elementSize);
-
-        copyToDevice(device, deviceMemory, data.data(), data.size(), elementSize);
-      }
-
-      template <typename DataType>
-      void upload(vk::PhysicalDevice const& physicalDevice, vk::UniqueDevice const& device, vk::UniqueCommandPool const& commandPool, vk::Queue queue, std::vector<DataType> const& data,
-                  size_t stride) const
-      {
-        assert(m_usage & vk::BufferUsageFlagBits::eTransferDst);
-        assert(m_propertyFlags & vk::MemoryPropertyFlagBits::eDeviceLocal);
-
-        size_t elementSize = stride ? stride : sizeof(DataType);
-        assert(sizeof(DataType) <= elementSize);
-
-        size_t dataSize = data.size() * elementSize;
-        assert(dataSize <= m_size);
-
-        vk::su::BufferData stagingBuffer(physicalDevice, device, dataSize, vk::BufferUsageFlagBits::eTransferSrc);
-        copyToDevice(device, stagingBuffer.deviceMemory, data.data(), data.size(), elementSize);
-
-        vk::su::oneTimeSubmit(device, commandPool, queue,
-                              [&](vk::UniqueCommandBuffer const& commandBuffer) { commandBuffer->copyBuffer(*stagingBuffer.buffer, *this->buffer, vk::BufferCopy(0, 0, dataSize)); });
-      }
-
-      vk::UniqueBuffer        buffer;
-      vk::UniqueDeviceMemory  deviceMemory;
-#if !defined(NDEBUG)
-      private:
-      vk::DeviceSize          m_size;
-      vk::BufferUsageFlags    m_usage;
-      vk::MemoryPropertyFlags m_propertyFlags;
-#endif)
-    };
-
-    struct ImageData
-    {
-      ImageData(vk::PhysicalDevice const& physicalDevice, vk::UniqueDevice const& device, vk::Format format, vk::Extent2D const& extent, vk::ImageTiling tiling, vk::ImageUsageFlags usage
-                , vk::ImageLayout initialLayout, vk::MemoryPropertyFlags memoryProperties, vk::ImageAspectFlags aspectMask);
-
-      vk::Format              format;
-      vk::UniqueImage         image;
-      vk::UniqueDeviceMemory  deviceMemory;
-      vk::UniqueImageView     imageView;
-    };
-
-    struct DepthBufferData : public ImageData
-    {
-      DepthBufferData(vk::PhysicalDevice &physicalDevice, vk::UniqueDevice & device, vk::Format format, vk::Extent2D const& extent);
-    };
-
-
     class CheckerboardImageGenerator
     {
     public:
@@ -133,45 +59,6 @@ namespace vk
       vk::Extent2D          m_extent;
       size_t                m_channels;
       unsigned char const*  m_pixels;
-    };
-
-
-    struct TextureData
-    {
-      TextureData(vk::PhysicalDevice const& physicalDevice, vk::UniqueDevice const& device, vk::Extent2D const& extent_ = {256, 256}, vk::ImageUsageFlags usageFlags = {},
-                  vk::FormatFeatureFlags formatFeatureFlags = {}, bool anisotropyEnable = false, bool forceStaging = false);
-
-      template <typename ImageGenerator>
-      void setImage(vk::UniqueDevice const& device, vk::UniqueCommandBuffer const& commandBuffer, ImageGenerator const& imageGenerator)
-      {
-        void* data = needsStaging
-          ? device->mapMemory(stagingBufferData->deviceMemory.get(), 0, device->getBufferMemoryRequirements(stagingBufferData->buffer.get()).size)
-          : device->mapMemory(imageData->deviceMemory.get(), 0, device->getImageMemoryRequirements(imageData->image.get()).size);
-        imageGenerator(data, extent);
-        device->unmapMemory(needsStaging ? stagingBufferData->deviceMemory.get() : imageData->deviceMemory.get());
-
-        if (needsStaging)
-        {
-          // Since we're going to blit to the texture image, set its layout to eTransferDstOptimal
-          vk::su::setImageLayout(commandBuffer, imageData->image.get(), imageData->format, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
-          vk::BufferImageCopy copyRegion(0, extent.width, extent.height, vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, 0, 0, 1), vk::Offset3D(0, 0, 0), vk::Extent3D(extent, 1));
-          commandBuffer->copyBufferToImage(stagingBufferData->buffer.get(), imageData->image.get(), vk::ImageLayout::eTransferDstOptimal, copyRegion);
-          // Set the layout for the texture image from eTransferDstOptimal to SHADER_READ_ONLY
-          vk::su::setImageLayout(commandBuffer, imageData->image.get(), imageData->format, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal);
-        }
-        else
-        {
-          // If we can use the linear tiled image as a texture, just do it
-          vk::su::setImageLayout(commandBuffer, imageData->image.get(), imageData->format, vk::ImageLayout::ePreinitialized, vk::ImageLayout::eShaderReadOnlyOptimal);
-        }
-      }
-
-      vk::Format                  format;
-      vk::Extent2D                extent;
-      bool                        needsStaging;
-      std::unique_ptr<BufferData> stagingBufferData;
-      std::unique_ptr<ImageData>  imageData;
-      vk::UniqueSampler           textureSampler;
     };
 
     struct UUID
@@ -263,12 +150,6 @@ namespace vk
     vk::Format pickDepthFormat(vk::PhysicalDevice const& physicalDevice);
     void setImageLayout(vk::UniqueCommandBuffer const& commandBuffer, vk::Image image, vk::Format format, vk::ImageLayout oldImageLayout, vk::ImageLayout newImageLayout);
     void submitAndWait(vk::UniqueDevice &device, vk::Queue queue, vk::UniqueCommandBuffer &commandBuffer);
-    void updateDescriptorSets(vk::UniqueDevice const& device, vk::UniqueDescriptorSet const& descriptorSet,
-                              std::vector<std::tuple<vk::DescriptorType, vk::UniqueBuffer const&, vk::UniqueBufferView const&>> const& bufferData, vk::su::TextureData const& textureData,
-                              uint32_t bindingOffset = 0);
-    void updateDescriptorSets(vk::UniqueDevice const& device, vk::UniqueDescriptorSet const& descriptorSet,
-                              std::vector<std::tuple<vk::DescriptorType, vk::UniqueBuffer const&, vk::UniqueBufferView const&>> const& bufferData,
-                              std::vector<vk::su::TextureData> const& textureData, uint32_t bindingOffset = 0);
 
   }
 }

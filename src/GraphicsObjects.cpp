@@ -1,5 +1,7 @@
 #include "GraphicsObjects.h"
 
+const uint64 FenceTimeout = 100000000;
+
 //////////////////////////////////////////////////////////////////////////
 
 RenderWindow::RenderWindow(const vk::UniqueInstance& vkInstance, uint32 width, uint32 height, const string& title)
@@ -131,6 +133,59 @@ Device::~Device()
 
 }
 
+void Device::updateDescriptorSets(const vk::UniqueDescriptorSet& descriptorSet,
+                                  const std::vector<std::tuple<vk::DescriptorType, const vk::UniqueBuffer&, const vk::UniqueBufferView&>>& bufferData, 
+                                  const Texture& textureData, uint32_t bindingOffset)
+{
+    std::vector<vk::DescriptorBufferInfo> bufferInfos;
+    bufferInfos.reserve(bufferData.size());
+
+    std::vector<vk::WriteDescriptorSet> writeDescriptorSets;
+    writeDescriptorSets.reserve(bufferData.size() + 1);
+    uint32_t dstBinding = bindingOffset;
+    for (auto const& bd : bufferData)
+    {
+        bufferInfos.push_back(vk::DescriptorBufferInfo(*std::get<1>(bd), 0, VK_WHOLE_SIZE));
+        writeDescriptorSets.push_back(vk::WriteDescriptorSet(*descriptorSet, dstBinding++, 0, 1, std::get<0>(bd), nullptr, &bufferInfos.back(), std::get<2>(bd) ? &*std::get<2>(bd) : nullptr));
+    }
+
+    vk::DescriptorImageInfo imageInfo(*textureData.m_textureSampler, *textureData.m_imageData->m_imageView, vk::ImageLayout::eShaderReadOnlyOptimal);
+    writeDescriptorSets.push_back(vk::WriteDescriptorSet(*descriptorSet, dstBinding, 0, 1, vk::DescriptorType::eCombinedImageSampler, &imageInfo, nullptr, nullptr));
+
+    m_device->updateDescriptorSets(writeDescriptorSets, nullptr);
+}
+
+void Device::updateDescriptorSets(const vk::UniqueDescriptorSet& descriptorSet,
+                                  const std::vector<std::tuple<vk::DescriptorType, const vk::UniqueBuffer&, const vk::UniqueBufferView&>>& bufferData,
+                                  const std::vector<Texture>& textureData, uint32_t bindingOffset)
+{
+    std::vector<vk::DescriptorBufferInfo> bufferInfos;
+    bufferInfos.reserve(bufferData.size());
+
+    std::vector<vk::WriteDescriptorSet> writeDescriptorSets;
+    writeDescriptorSets.reserve(bufferData.size() + textureData.empty() ? 0 : 1);
+    uint32_t dstBinding = bindingOffset;
+    for (auto const& bd : bufferData)
+    {
+        bufferInfos.push_back(vk::DescriptorBufferInfo(*std::get<1>(bd), 0, VK_WHOLE_SIZE));
+        writeDescriptorSets.push_back(vk::WriteDescriptorSet(*descriptorSet, dstBinding++, 0, 1, std::get<0>(bd), nullptr, &bufferInfos.back(), std::get<2>(bd) ? &*std::get<2>(bd) : nullptr));
+    }
+
+    std::vector<vk::DescriptorImageInfo> imageInfos;
+    if (!textureData.empty())
+    {
+        imageInfos.reserve(textureData.size());
+        for (auto const& td : textureData)
+        {
+            imageInfos.push_back(vk::DescriptorImageInfo(*td.m_textureSampler, *td.m_imageData->m_imageView, vk::ImageLayout::eShaderReadOnlyOptimal));
+        }
+        writeDescriptorSets.push_back(vk::WriteDescriptorSet(*descriptorSet, dstBinding, 0, (uint32_t)imageInfos.size(), vk::DescriptorType::eCombinedImageSampler, imageInfos.data(),
+                                                             nullptr, nullptr));
+    }
+
+    m_device->updateDescriptorSets(writeDescriptorSets, nullptr);
+}
+
 
 /////////////////////////////////////////////////////////////////////////
 
@@ -252,7 +307,7 @@ SwapChain::~SwapChain()
 
 void SwapChain::Acquire()
 {
-    vk::ResultValue<uint32_t> currentBufferIndex = m_device.getVKDevice()->acquireNextImageKHR(m_swapChain.get(), vk::su::FenceTimeout, m_imageAcquiredSemaphore.get(), nullptr);
+    vk::ResultValue<uint32_t> currentBufferIndex = m_device.getVKDevice()->acquireNextImageKHR(m_swapChain.get(), FenceTimeout, m_imageAcquiredSemaphore.get(), nullptr);
 
     //m_currentBufferIndex = m_device.getVKDevice()->acquireNextImageKHR(m_swapChain.get(), vk::su::FenceTimeout, m_imageAcquiredSemaphore.get(), nullptr);
     assert(currentBufferIndex.result == vk::Result::eSuccess);
@@ -265,4 +320,114 @@ void SwapChain::Present()
 {
     const vk::Queue& presentQueue = m_device.getPresentQueue();
     presentQueue.presentKHR(vk::PresentInfoKHR(0, nullptr, 1, &m_swapChain.get(), &m_currentBufferIndex.value));
+}
+
+/////////////////////////////////////////////////////////////////////////
+
+Buffer::Buffer(const Device& device, vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags propertyFlags)
+    : m_device(device)
+    , m_size(size)
+    , m_usage(usage)
+    , m_propertyFlags(propertyFlags)
+{
+    const vk::UniqueDevice& vkDevice = device.getVKDevice();
+
+    m_buffer = vkDevice->createBufferUnique(vk::BufferCreateInfo(vk::BufferCreateFlags(), size, usage));
+    m_deviceMemory = vk::su::allocateMemory(vkDevice, device.getPhysicalDevice().getMemoryProperties(), vkDevice->getBufferMemoryRequirements(m_buffer.get()), propertyFlags);
+    vkDevice->bindBufferMemory(m_buffer.get(), m_deviceMemory.get(), 0);
+}
+
+Buffer::~Buffer()
+{
+
+}
+
+void Buffer::upload(const void* data, size_t size, size_t stride)
+{
+    assert((m_propertyFlags & vk::MemoryPropertyFlagBits::eHostCoherent) && (m_propertyFlags & vk::MemoryPropertyFlagBits::eHostVisible));
+    assert(size <= m_size);
+
+    const vk::UniqueDevice& device = m_device.getVKDevice();
+
+    void* dataPtr = device->mapMemory(*m_deviceMemory, 0, size);
+    memcpy(dataPtr, &data, size);
+    device->unmapMemory(*m_deviceMemory);
+}
+
+/////////////////////////////////////////////////////////////////////////
+
+Image::Image(const Device& device, vk::Format format_, const vk::Extent2D& extent, vk::ImageTiling tiling, vk::ImageUsageFlags usage, vk::ImageLayout initialLayout, vk::MemoryPropertyFlags memoryProperties, vk::ImageAspectFlags aspectMask)
+    : m_format(format_)
+{
+    const vk::UniqueDevice& vkDevice = device.getVKDevice();
+    const vk::PhysicalDevice& physicalDevice = device.getPhysicalDevice();
+
+    vk::ImageCreateInfo imageCreateInfo(vk::ImageCreateFlags(), vk::ImageType::e2D, m_format, vk::Extent3D(extent, 1), 1, 1,
+                                        vk::SampleCountFlagBits::e1, tiling, usage | vk::ImageUsageFlagBits::eSampled, vk::SharingMode::eExclusive, 0, nullptr, initialLayout);
+    m_image = vkDevice->createImageUnique(imageCreateInfo);
+
+    m_deviceMemory = vk::su::allocateMemory(vkDevice, physicalDevice.getMemoryProperties(), vkDevice->getImageMemoryRequirements(m_image.get()), memoryProperties);
+
+    vkDevice->bindImageMemory(m_image.get(), m_deviceMemory.get(), 0);
+
+    vk::ComponentMapping componentMapping(vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG, vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA);
+    vk::ImageViewCreateInfo imageViewCreateInfo(vk::ImageViewCreateFlags(), m_image.get(), vk::ImageViewType::e2D, m_format, componentMapping, vk::ImageSubresourceRange(aspectMask, 0, 1, 0, 1));
+    m_imageView = vkDevice->createImageViewUnique(imageViewCreateInfo);
+}
+
+Image::~Image()
+{
+
+}
+
+/////////////////////////////////////////////////////////////////////////
+
+DepthBuffer::DepthBuffer(const Device& device, vk::Format format, const vk::Extent2D& extent)
+    : Image(device, format, extent, vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::ImageLayout::eUndefined,
+                vk::MemoryPropertyFlagBits::eDeviceLocal, vk::ImageAspectFlagBits::eDepth)
+{
+}
+
+/////////////////////////////////////////////////////////////////////////
+
+Texture::Texture(const Device& device, const vk::Extent2D& extent_, vk::ImageUsageFlags usageFlags, vk::FormatFeatureFlags formatFeatureFlags, bool anisotropyEnable, bool forceStaging)
+    : m_format(vk::Format::eR8G8B8A8Unorm)
+    , m_extent(extent_)
+{
+    const vk::UniqueDevice& vkDevice = device.getVKDevice();
+    const vk::PhysicalDevice& physicalDevice = device.getPhysicalDevice();
+
+    vk::PhysicalDeviceMemoryProperties memoryProperties = physicalDevice.getMemoryProperties();
+    vk::FormatProperties formatProperties = physicalDevice.getFormatProperties(m_format);
+
+    formatFeatureFlags |= vk::FormatFeatureFlagBits::eSampledImage;
+    m_needsStaging = forceStaging || ((formatProperties.linearTilingFeatures & formatFeatureFlags) != formatFeatureFlags);
+    vk::ImageTiling imageTiling;
+    vk::ImageLayout initialLayout;
+    vk::MemoryPropertyFlags requirements;
+    if (m_needsStaging)
+    {
+        assert((formatProperties.optimalTilingFeatures & formatFeatureFlags) == formatFeatureFlags);
+        m_stagingBufferData = std::make_unique<Buffer>(physicalDevice, device, m_extent.width * m_extent.height * 4, vk::BufferUsageFlagBits::eTransferSrc);
+        imageTiling = vk::ImageTiling::eOptimal;
+        usageFlags |= vk::ImageUsageFlagBits::eTransferDst;
+        initialLayout = vk::ImageLayout::eUndefined;
+    }
+    else
+    {
+        imageTiling = vk::ImageTiling::eLinear;
+        initialLayout = vk::ImageLayout::ePreinitialized;
+        requirements = vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible;
+    }
+    m_imageData = std::make_unique<Image>(physicalDevice, device, m_format, m_extent, imageTiling, usageFlags | vk::ImageUsageFlagBits::eSampled, initialLayout, requirements,
+                                            vk::ImageAspectFlagBits::eColor);
+
+    //textureSampler = device->createSamplerUnique(vk::SamplerCreateInfo(vk::SamplerCreateFlags(), vk::Filter::eLinear, vk::Filter::eLinear, vk::SamplerMipmapMode::eLinear,
+    //                                                                   vk::SamplerAddressMode::eRepeat, vk::SamplerAddressMode::eRepeat, vk::SamplerAddressMode::eRepeat, 0.0f, anisotropyEnable,
+    //                                                                   16.0f, false, vk::CompareOp::eNever, 0.0f, 0.0f, vk::BorderColor::eFloatOpaqueBlack));
+}
+
+Texture::~Texture()
+{
+
 }
