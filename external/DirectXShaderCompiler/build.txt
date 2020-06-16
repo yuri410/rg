@@ -1,0 +1,1 @@
+.\utils\hct\hctbuild.cmd -s -rel -x64 -vs2019 -no-dxilconv -spirv -spirvtest

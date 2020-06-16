@@ -17,6 +17,7 @@
 #include "dxc/Support/WinIncludes.h"
 #include <string>
 #include <vector>
+#include <ios>
 
 #include "dxc/DxilContainer/DxilContainer.h"
 #include "dxc/DxilRootSignature/DxilRootSignature.h"
